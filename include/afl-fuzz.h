@@ -169,7 +169,8 @@ struct queue_entry {
 
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
       fuzz_level,                       /* Number of fuzzing iterations     */
-      n_fuzz_entry;                     /* offset in n_fuzz                 */
+      n_fuzz_entry,                     /* offset in n_fuzz                 */
+      times_selected;                   /* times selected to be mutated */
 
   u64 exec_us,                          /* Execution time (us)              */
       handicap,                         /* Number of queue cycles behind    */
@@ -183,8 +184,10 @@ struct queue_entry {
   u32 bitsmap_size;
 #endif
 
-  double perf_score,                    /* performance score                */
-      weight;
+  double perf_score,                    /* performance score */
+         raw_fitness,                   /* The non-normalized fitness of the seed as it is returned */
+         alias_score,                   /* Used to calculate probability of choosing this seed */
+         weight;                        /* The fitness of the seed normalized between min and max raw fitness */
 
   u8 *testcase_buf;                     /* The testcase buffer, if loaded.  */
 
@@ -724,6 +727,10 @@ typedef struct afl_state {
   struct custom_mutator *current_custom_fuzz;
 
   list_t custom_mutator_list;
+
+  /*Testing for AFL Contiguity*/
+  double lastPerformanceScore;
+  double lastWeight;
 
   /* this is a fixed buffer of size map_size that can be used by any function if
    * they do not call another function */

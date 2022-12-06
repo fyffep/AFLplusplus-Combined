@@ -878,7 +878,7 @@ void perform_dry_run(afl_state_t *afl) {
 
     u8 *fn = strrchr(q->fname, '/') + 1;
 
-    ACTF("Attempting dry run with '%s'...", fn);
+    // ACTF("Attempting dry run with '%s'...", fn);
 
     fd = open(q->fname, O_RDONLY);
     if (fd < 0) { PFATAL("Unable to open '%s'", q->fname); }

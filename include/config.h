@@ -509,3 +509,22 @@
 
 #endif                                                  /* ! _HAVE_CONFIG_H */
 
+//COPIED FROM AFLCHURN
+
+/* Shared memory for Path weight. 
+8 bytes for weight (double); 8 for count (integer).
+ */
+#define WEIGHT_SHM         16
+
+/* Threshold of ages and changes */
+// Always instrument a BB if its age is less than days
+#define THRESHOLD_DAYS     200
+#define THRESHOLD_RANKS    200
+#define THRESHOLD_CHANGES    10
+// Always instrument a BB if its #changes is larger than a percentage (%)
+#define THRESHOLD_PERCENT_CHANGES   10
+
+/* Ratio (%) to select a BB to insert age/churn */
+#define CHURN_INSERT_RATIO    30
+
+#define WRONG_VALUE     0
