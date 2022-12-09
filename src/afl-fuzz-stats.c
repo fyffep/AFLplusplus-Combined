@@ -1121,13 +1121,13 @@ void show_stats_normal(afl_state_t *afl) {
   SAYF(bV bSTOP "py/custom/rq : " cRST "%-36s " bSTG bVR bH20 bH2 bH bRB "\n",
        tmp);
 
-  SAYF(bV bSTOP "lastPerfScore : " cRST "%0.02f%% " bSTG bVR bH20 bH2 bH bRB "\n",
+  //AFL Contiguity status
+  SAYF(bV bSTOP "lastPerfScore: " cRST "%-36.2f " bSTG bVR bH20 bH2 bH bRB "\n",
        afl->lastPerformanceScore);
 
-  // SAYF(bV bSTOP "lastPerfScore: " cRST "%-22s " bSTG bV bSTOP
-  //               " total crashes : %s%-20s" bSTG         bV "\n",
-  //       u_stringify_int(IB(0), afl->lastPerformanceScore), crash_color, tmp);
-
+  SAYF(bV bSTOP "   lastWeight : " cRST "%f" bSTG bVR bH20 bH2 bH bRB "\n",
+       afl->lastWeight);
+       
   if (likely(afl->disable_trim)) {
 
     sprintf(tmp, "disabled, ");
@@ -1959,9 +1959,13 @@ void show_stats_pizza(afl_state_t *afl) {
                 "%-36s  " bSTG bVR bH20 bH2 bH30 bH2 bH bH bRB "\n",
        tmp);
 
-  SAYF(bV bSTOP "                      hello-tester : " cRST
-                "%-36s  " bSTG bVR bH20 bH2 bH30 bH2 bH bH bRB "\n",
-       tmp);
+  //AFL Contiguity status
+  SAYF(bV bSTOP "lastPerfScore : " cRST "%f" bSTG bVR bH20 bH2 bH bRB "\n",
+       afl->lastPerformanceScore);
+
+  SAYF(bV bSTOP "   lastWeight : " cRST "%f" bSTG bVR bH20 bH2 bH bRB "\n",
+       afl->lastWeight);
+
 
   if (likely(afl->disable_trim)) {
 

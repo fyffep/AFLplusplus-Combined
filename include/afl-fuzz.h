@@ -728,9 +728,8 @@ typedef struct afl_state {
 
   list_t custom_mutator_list;
 
-  /*Testing for AFL Contiguity*/
+  /*Status for AFL Contiguity*/
   double lastPerformanceScore;
-  double lastWeight;
 
   /* this is a fixed buffer of size map_size that can be used by any function if
    * they do not call another function */

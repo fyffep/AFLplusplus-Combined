@@ -723,6 +723,27 @@ bool AFLCoverage::runOnModule(Module &M) {
   rand_seed = tv.tv_sec ^ tv.tv_usec ^ getpid();
   AFL_SR(rand_seed);
 
+  
+  //Define types for AFLChurn
+  Type *VoidTy;
+  IntegerType *Int1Ty;
+  IntegerType *Int64Ty;
+  Type *Int8PtrTy;
+  Type *Int64PtrTy;
+  Type *DoubleTy;
+  Type *FloatTy;
+  unsigned NoSanMetaId;
+  MDTuple *NoneMetaNode;
+  VoidTy = Type::getVoidTy(C);
+  Int1Ty = IntegerType::getInt1Ty(C);
+  Int64Ty = IntegerType::getInt64Ty(C);
+  Int8PtrTy = PointerType::getUnqual(Int8Ty);
+  Int64PtrTy = PointerType::getUnqual(Int64Ty);
+  DoubleTy = Type::getDoubleTy(C);
+  FloatTy = Type::getFloatTy(C);
+  NoSanMetaId = C.getMDKindID("nosanitize");
+  NoneMetaNode = MDNode::get(C, None);
+
   /* Show a banner */
 
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -770,6 +791,35 @@ bool AFLCoverage::runOnModule(Module &M) {
   char *day_sig_str, *change_sig_str;
 
   unsigned short change_sig = CHURN_LOG_CHANGE; //day_sig, 
+
+  if (getenv("AFLCHURN_DISABLE_AGE")) use_cmd_age = false;
+  day_sig_str = getenv("AFLCHURN_ENABLE_RANK");
+  if (day_sig_str){
+    if (!strcmp(day_sig_str, "rrank")){
+      use_cmd_age_rank = true;
+      use_cmd_age = false;
+    } else{
+      FATAL("Set proper age signal");
+    }
+  }
+
+  if (getenv("AFLCHURN_DISABLE_CHURN")) use_cmd_change = false;
+  change_sig_str = getenv("AFLCHURN_CHURN_SIG");
+  if (change_sig_str){
+    if (!use_cmd_change) FATAL("Cannot simultaneously set AFLCHURN_DISABLE_CHURN and AFLCHURN_CHURN_SIG!");
+    if (!strcmp(change_sig_str, "logchange")){
+      change_sig = CHURN_LOG_CHANGE;
+    } else if (!strcmp(change_sig_str, "change")){
+      change_sig = CHURN_CHANGE;
+    } else if (!strcmp(change_sig_str, "change2")){
+      change_sig = CHURN_CHANGE2;
+    } else {
+      FATAL("Wrong change signal.");
+    }
+  }
+
+  unsigned int bb_select_ratio = CHURN_INSERT_RATIO;
+  char *bb_select_ratio_str = getenv("AFLCHURN_INST_RATIO");
 
 #if LLVM_VERSION_MAJOR < 9
   char *neverZero_counters_str = getenv("AFL_LLVM_NOT_ZERO");
@@ -1020,7 +1070,10 @@ bool AFLCoverage::runOnModule(Module &M) {
 
   /* Instrument all the things! */
 
-  int inst_blocks = 0;
+  int inst_blocks = 0, inst_ages = 0, inst_changes = 0, inst_fitness = 0;
+  double module_total_ages = 0, module_total_changes = 0, module_total_fitness = 0,
+      module_ave_ages = 0, module_ave_chanegs = 0, module_ave_fitness = 0;
+
   scanForDangerousFunctions(&M);
   
   std::set<std::string> unexist_files, processed_files;
@@ -1211,11 +1264,87 @@ bool AFLCoverage::runOnModule(Module &M) {
                 }
               }
             }
-
-
-
-
           }
+
+          /* insert age/churn into BBs */
+          /* both age and change are enabled */
+          if ((bb_rank_age > 0 || bb_burst_best > 0) &&
+                (bb_burst_best > norm_change_thd || bb_age_best > norm_age_thd
+                  || bb_rank_best > norm_rank_thd || AFL_R(100) < bb_select_ratio))
+          {
+            // change
+            if (bb_burst_best > 0){
+              inst_changes++;
+              module_total_changes += bb_burst_best;
+            } else bb_burst_best = 1;
+            // age
+            if (bb_rank_age > 0){
+              inst_ages ++;
+              module_total_ages += bb_rank_age;
+            } else bb_rank_age = 1;
+            // combine
+            bb_raw_fitness = bb_burst_best * bb_rank_age;
+            bb_raw_fitness_flag = true;
+
+            inst_fitness ++;
+            module_total_fitness += bb_raw_fitness;
+          }
+
+          if (bb_raw_fitness_flag) {
+            Constant *Weight = ConstantFP::get(DoubleTy, bb_raw_fitness);
+            Constant *MapLoc = ConstantInt::get(Int32Ty, MAP_SIZE);
+            Constant *MapCntLoc = ConstantInt::get(Int32Ty, MAP_SIZE + 8);
+            
+            LoadInst *MapPtr = IRB.CreateLoad(
+#if LLVM_VERSION_MAJOR >= 14
+                PointerType::get(Int8Ty, 0),
+#endif
+              AFLMapPtr);
+            MapPtr->setMetadata(NoSanMetaId, NoneMetaNode);
+            // Value *MapPtrIdx =
+            //   IRB.CreateGEP(MapPtr, IRB.CreateXor(PrevLocCasted, CurLoc));
+
+            // add to shm, churn raw fitness
+            Value *MapWtPtr = IRB.CreateGEP(MapPtr, MapLoc);
+            LoadInst *MapWt = IRB.CreateLoad(DoubleTy, MapWtPtr);
+            MapWt->setMetadata(NoSanMetaId, NoneMetaNode);
+            Value *IncWt = IRB.CreateFAdd(MapWt, Weight);
+            IRB.CreateStore(IncWt, MapWtPtr)
+              ->setMetadata(NoSanMetaId, NoneMetaNode);
+
+            add to shm, block count
+    #ifdef WORD_SIZE_64
+            Value *MapCntPtr = IRB.CreateGEP(  
+#if LLVM_VERSION_MAJOR >= 14
+              Int8Ty,
+#endif
+              MapPtr, MapCntLoc);
+            LoadInst *MapCnt = IRB.CreateLoad(
+#if LLVM_VERSION_MAJOR >= 14
+                PointerType::get(Int8Ty, 0),
+#endif
+                Int64Ty, MapCntPtr);
+            MapCnt->setMetadata(NoSanMetaId, NoneMetaNode);
+            Value *IncCnt = IRB.CreateAdd(MapCnt, ConstantInt::get(Int64Ty, 1));
+            IRB.CreateStore(IncCnt, MapCntPtr)
+                    ->setMetadata(NoSanMetaId, NoneMetaNode);
+    #else
+            Value *MapCntPtr = IRB.CreateGEP(
+#if LLVM_VERSION_MAJOR >= 14
+              Int8Ty,
+#endif
+              MapPtr, MapCntLoc);
+            LoadInst *MapCnt = IRB.CreateLoad(
+#if LLVM_VERSION_MAJOR >= 14
+                PointerType::get(Int8Ty, 0),
+#endif
+                Int32Ty, MapCntPtr);
+            MapCnt->setMetadata(NoSanMetaId, NoneMetaNode);
+            Value *IncCnt = IRB.CreateAdd(MapCnt, ConstantInt::get(Int32Ty, 1));
+            IRB.CreateStore(IncCnt, MapCntPtr)
+                    ->setMetadata(NoSanMetaId, NoneMetaNode);
+    #endif
+        }
 
         }
 
@@ -1517,6 +1646,67 @@ bool AFLCoverage::runOnModule(Module &M) {
         }
 
       }
+
+      /* Set prev_loc to cur_loc >> 1 */
+//       StoreInst *Store =
+//           IRB.CreateStore(ConstantInt::get(Int32Ty, cur_loc >> 1), AFLPrevLoc);
+//       Store->setMetadata(NoSanMetaId, NoneMetaNode);
+
+//       /* insert age/churn into BBs */
+//       if ((use_cmd_age || use_cmd_age_rank) && !use_cmd_change){
+//         /* both age and change are enabled */
+//         if ((bb_rank_age > 0 || bb_burst_best > 0) &&
+//                 (bb_burst_best > norm_change_thd || bb_age_best > norm_age_thd
+//                    || bb_rank_best > norm_rank_thd || AFL_R(100) < bb_select_ratio)){
+//             // change
+//             if (bb_burst_best > 0){
+//               inst_changes++;
+//               module_total_changes += bb_burst_best;
+//             } else bb_burst_best = 1;
+//             // age
+//             if (bb_rank_age > 0){
+//               inst_ages ++;
+//               module_total_ages += bb_rank_age;
+//             } else bb_rank_age = 1;
+//             // combine
+//             bb_raw_fitness = bb_burst_best * bb_rank_age;
+//             bb_raw_fitness_flag = true;
+
+//             inst_fitness ++;
+//             module_total_fitness += bb_raw_fitness;
+//         }
+
+//       if (bb_raw_fitness_flag) {
+//         Constant *Weight = ConstantFP::get(DoubleTy, bb_raw_fitness);
+//         Constant *MapLoc = ConstantInt::get(Int32Ty, MAP_SIZE);
+//         Constant *MapCntLoc = ConstantInt::get(Int32Ty, MAP_SIZE + 8);
+        
+//         // add to shm, churn raw fitness
+//         Value *MapWtPtr = IRB.CreateGEP(MapPtr, MapLoc);
+//         LoadInst *MapWt = IRB.CreateLoad(DoubleTy, MapWtPtr);
+//         MapWt->setMetadata(NoSanMetaId, NoneMetaNode);
+//         Value *IncWt = IRB.CreateFAdd(MapWt, Weight);
+//         IRB.CreateStore(IncWt, MapWtPtr)
+//           ->setMetadata(NoSanMetaId, NoneMetaNode);
+
+//         // add to shm, block count
+// #ifdef WORD_SIZE_64
+//         Value *MapCntPtr = IRB.CreateGEP(MapPtr, MapCntLoc);
+//         LoadInst *MapCnt = IRB.CreateLoad(Int64Ty, MapCntPtr);
+//         MapCnt->setMetadata(NoSanMetaId, NoneMetaNode);
+//         Value *IncCnt = IRB.CreateAdd(MapCnt, ConstantInt::get(Int64Ty, 1));
+//         IRB.CreateStore(IncCnt, MapCntPtr)
+//                 ->setMetadata(NoSanMetaId, NoneMetaNode);
+// #else
+//         Value *MapCntPtr = IRB.CreateGEP(MapPtr, MapCntLoc);
+//         LoadInst *MapCnt = IRB.CreateLoad(Int32Ty, MapCntPtr);
+//         MapCnt->setMetadata(NoSanMetaId, NoneMetaNode);
+//         Value *IncCnt = IRB.CreateAdd(MapCnt, ConstantInt::get(Int32Ty, 1));
+//         IRB.CreateStore(IncCnt, MapCntPtr)
+//                 ->setMetadata(NoSanMetaId, NoneMetaNode);
+// #endif
+//       }
+
 
       inst_blocks++;
 

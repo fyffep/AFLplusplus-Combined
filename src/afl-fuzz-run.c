@@ -38,6 +38,23 @@
 u64 time_spent_working = 0;
 #endif
 
+size_t calibrated_paths = 0;  /* aggregate count */
+
+static struct queue_entry *queue,     /* Fuzzing queue (linked list)      */
+                          *queue_cur, /* Current offset within the queue  */
+                          *queue_top, /* Top of the list                  */
+                          *q_prev100; /* Previous 100 marker              */
+
+u8* trace_bits;                /* SHM with instrumentation bitmap  */
+
+u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
+           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
+           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
+
+static s32 shm_id;                    /* ID of the SHM region             */
+           
+u8  dumb_mode = 0;                 /* Run in non-instrumented mode?  */
+
 /* Execute target application, monitoring for timeouts. Return status
    information. The called program will update afl->fsrv->trace_bits. */
 
@@ -68,6 +85,109 @@ fuzz_run_target(afl_state_t *afl, afl_forkserver_t *fsrv, u32 timeout) {
   return res;
 
 }
+
+double max_raw_fitness = 0,    /* max path churn among all seeds */
+        min_raw_fitness = 0;   /* minimun path churn among all seeds */
+
+/* Get values of churn info from instrumentation  */
+double get_raw_fitness_of_executed_input(){
+  double inst_raw_fitness = 0.0;
+
+  double *sum_raw_fitness = (double *)(trace_bits + MAP_SIZE);
+
+#ifdef WORD_SIZE_64
+  u64 *count_raw_fitness = (u64 *)(trace_bits + MAP_SIZE + 8);
+
+#else
+  u32 *count_raw_fitness = (u32 *)(trace_bits + MAP_SIZE + 8);
+
+#endif
+
+  if ((*count_raw_fitness) != 0){ 
+    inst_raw_fitness = (*sum_raw_fitness) / (*count_raw_fitness);
+  }
+
+  return inst_raw_fitness;
+}
+
+/* Fitness factor for age/churn infomation */
+double normalize_fitness(double cur_raw_fitness){
+  double normalized_fitness = 0.0;
+
+  if (max_raw_fitness == min_raw_fitness){
+    normalized_fitness = 1;
+  } else {
+    // maximize
+    normalized_fitness = (cur_raw_fitness - min_raw_fitness) / (max_raw_fitness - min_raw_fitness);  
+  }
+
+  return normalized_fitness;
+}
+
+void update_seed_fitness(afl_state_t *afl) {
+  // struct queue_entry *q = queue;
+  // while (q){
+  //   if (!q->cal_failed)
+  //     q->weight = normalize_fitness(q->raw_fitness);
+    
+  //   // q = q->next;
+
+  //   afl->current_entry = 
+  //   afl->queue_cur = afl->queue_buf[ select_next_queue_entry(afl) ];
+  // }
+
+  struct queue_entry *q;
+  u32 i;
+  for (i = 0; i < afl->queued_items; i++) {
+    q = afl->queue_buf[i];
+    if (!q->cal_failed)
+      q->weight = normalize_fitness(q->raw_fitness);
+  }
+}
+
+/* Get rid of shared memory (atexit handler). */
+static void remove_shm(void) {
+
+  shmctl(shm_id, IPC_RMID, NULL);
+
+}
+
+/* Configure shared memory and virgin_bits. This is called at startup. */
+void setup_shm(void) {
+
+  u8* shm_str;
+
+  memset(virgin_bits, 255, MAP_SIZE);
+
+  memset(virgin_tmout, 255, MAP_SIZE);
+  memset(virgin_crash, 255, MAP_SIZE);
+
+
+  shm_id = shmget(IPC_PRIVATE, MAP_SIZE + WEIGHT_SHM, IPC_CREAT | IPC_EXCL | 0600);
+
+  if (shm_id < 0) PFATAL("shmget() failed");
+
+  atexit(remove_shm);
+
+  shm_str = alloc_printf("%d", shm_id);
+
+  /* If somebody is asking us to fuzz instrumented binaries in dumb mode,
+     we don't want them to detect instrumentation, since we won't be sending
+     fork server commands. This should be replaced with better auto-detection
+     later on, perhaps? */
+
+  if (!dumb_mode) setenv(SHM_ENV_VAR, shm_str, 1);
+
+  ck_free(shm_str);
+
+  trace_bits = shmat(shm_id, NULL, 0);
+  
+  if (trace_bits == (void *)-1) PFATAL("shmat() failed");
+
+
+}
+
+
 
 /* Write modified data to file for testing. If afl->fsrv.out_file is set, the
    old file is unlinked and a new one is created. Otherwise, afl->fsrv.out_fd is
@@ -386,6 +506,7 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
   s32 old_sc = afl->stage_cur, old_sm = afl->stage_max;
   u32 use_tmout = afl->fsrv.exec_tmout;
   u8 *old_sn = afl->stage_name;
+  u8 re_cal_seed_fitness = 0;
 
   if (unlikely(afl->shm.cmplog_mode)) { q->exec_cksum = 0; }
 
@@ -583,10 +704,35 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
   q->handicap = handicap;
   q->cal_failed = 0;
 
+  setup_shm();
+  q->raw_fitness = get_raw_fitness_of_executed_input();
+  
+  // anneal: update max and min path weight for all seeds
+  if (calibrated_paths == 0){
+    max_raw_fitness = min_raw_fitness = q->raw_fitness;
+  }
+
+  if (max_raw_fitness < q->raw_fitness){
+    max_raw_fitness = q->raw_fitness;
+    re_cal_seed_fitness = 1;
+  }
+
+  if (min_raw_fitness > q->raw_fitness) {
+    min_raw_fitness = q->raw_fitness;
+    re_cal_seed_fitness = 1;
+  }
+
+  calibrated_paths++;
+
   afl->total_bitmap_size += q->bitmap_size;
   ++afl->total_bitmap_entries;
 
   update_bitmap_score(afl, q);
+
+  if (re_cal_seed_fitness) 
+    update_seed_fitness(afl);
+  else 
+    q->weight = normalize_fitness(q->raw_fitness);
 
   /* If this case didn't result in new output from the instrumentation, tell
      parent. This is a non-critical problem, but something to warn the user
