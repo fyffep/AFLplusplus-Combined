@@ -1067,26 +1067,6 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
 
 
   //From AFLChurn: Simulated Annealing
-  // double max_raw_fitness = 0,    /* max path churn among all seeds */
-  //       min_raw_fitness = 0;   /* minimun path churn among all seeds */
-  // if (max_raw_fitness < q->raw_fitness){
-  //   max_raw_fitness = q->raw_fitness;
-  // }
-  // if (min_raw_fitness > q->raw_fitness) {
-  //   min_raw_fitness = q->raw_fitness;
-  // }
-  // float fitness_exponent = 0.3;
-  // u32 scale_exponent = 3; // default
-  // if (max_raw_fitness != min_raw_fitness) {
-  //   //q->weight comes from age and/or churn
-  //   energy_exponent = q->weight * (1 - pow(fitness_exponent, q->times_selected)) 
-  //                             + 0.5 * pow(fitness_exponent, q->times_selected);
-  //   energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));
-  //   if (energy_factor == 0) energy_factor = 1;
-    
-  //   perf_score *= energy_factor;
-  // }
-
   q->times_selected ++;
 
   float fitness_exponent = 0.3;
@@ -1094,10 +1074,7 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
   //q->weight comes from age and/or churn
   double energy_exponent = q->weight * (1 - pow(fitness_exponent, q->times_selected)) 
                             + 0.5 * pow(fitness_exponent, q->times_selected);
-  // double energy_factor = pow(2, scale_exponent * (2 * energy_exponent - 1));
-  // if (energy_factor == 0) energy_factor = 1;
   
-  // perf_score *= energy_factor;
   perf_score *= energy_exponent;
 
   afl->lastPerformanceScore = energy_exponent;

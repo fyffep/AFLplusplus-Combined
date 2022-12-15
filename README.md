@@ -1,4 +1,4 @@
-# American Fuzzy Lop plus plus (AFL++)
+# AFLCombined: An Integration of AFLChurn (Regression Greybox Fuzzing) into American Fuzzy Lop plus plus (AFL++)
 
 <img align="right" src="https://raw.githubusercontent.com/AFLplusplus/Website/master/static/aflpp_bg.svg" alt="AFL++ logo" width="250" heigh="250">
 
@@ -6,8 +6,17 @@ Release version: [4.04c](https://github.com/AFLplusplus/AFLplusplus/releases)
 
 GitHub version: 4.05a
 
-Repository:
+Original Repository:
 [https://github.com/AFLplusplus/AFLplusplus](https://github.com/AFLplusplus/AFLplusplus)
+
+AFLCombined was developed by:
+
+* Pete Fyffe <pfyffe@iu.edu>
+
+AFLChurn was developed by:
+
+* Xiaogang Zhu <xiaogangzhu@swin.edu.au>
+* Marcel Böhme <marcel.boehme@acm.org>
 
 AFL++ is maintained by:
 
@@ -47,9 +56,9 @@ Here is some information to get you started:
   default configuration on Google's
   [fuzzbench](https://github.com/google/fuzzbench/tree/master/fuzzers/aflplusplus).
 
-## Building and installing AFL++
+## Building and installing AFLCombined
 
-To have AFL++ easily available with everything compiled, pull the image directly
+To have AFLCombined easily available with everything compiled, pull the AFL++ image directly
 from the Docker Hub (available for both x86_64 and arm64):
 
 ```shell
@@ -61,13 +70,23 @@ This image is automatically published when a push to the stable branch happens
 (see [branches](#branches)). If you use the command above, you will find your
 target source code in `/src` in the container.
 
-Note: you can also pull `aflplusplus/aflplusplus:dev` which is the most current
-development state of AFL++.
+Enter the container with command line:
+```shell
+docker exec -it aflplusplus /bin/bash
+```
 
-To build AFL++ yourself - *which we recommend* - continue at
-[docs/INSTALL.md](docs/INSTALL.md).
+Then, pull the AFLCombined repository onto the image.
+```
+cd /
+git clone https://github.com/fyffep/AFLplusplus-Contiguity.git
+```
 
-## Quick start: Fuzzing with AFL++
+Compile the program with `make`. More details at [docs/INSTALL.md](docs/INSTALL.md).
+```
+make distrib
+```
+
+## Quick start: Fuzzing with AFLCombined
 
 *NOTE: Before you start, please read about the
 [common sense risks of fuzzing](docs/fuzzing_in_depth.md#0-common-sense-risks).*
@@ -94,8 +113,9 @@ Step-by-step quick start:
    make clean all
    ```
 
-2. Get a small but valid input file that makes sense to the program. When
-   fuzzing verbose syntax (SQL, HTTP, etc.), create a dictionary as described in
+2. Get a small but valid input file that makes sense to the program. These files may be provided by the program's
+   authors or, if no files are available, using garbage data with `cp /bin/ps* /path/to/fuzz/input` 
+   is sufficent. When fuzzing verbose syntax (SQL, HTTP, etc.), create a dictionary as described in
    [dictionaries/README.md](dictionaries/README.md), too.
 
 3. If the program reads from stdin, run `afl-fuzz` like so:
@@ -130,9 +150,9 @@ Step-by-step quick start:
 
 Questions? Concerns? Bug reports?
 
-* The contributors can be reached via (e.g., by creating an issue):
+* The AFL++ contributors can be reached via (e.g., by creating an issue):
   [https://github.com/AFLplusplus/AFLplusplus](https://github.com/AFLplusplus/AFLplusplus).
-* Take a look at our [FAQ](docs/FAQ.md). If you find an interesting or important
+* Take a look at [FAQ](docs/FAQ.md). If you find an interesting or important
   question missing, submit it via
   [https://github.com/AFLplusplus/AFLplusplus/discussions](https://github.com/AFLplusplus/AFLplusplus/discussions).
 * Best: join the [Awesome Fuzzing](https://discord.gg/gCraWct) Discord server.
@@ -141,41 +161,6 @@ Questions? Concerns? Bug reports?
   notes with other users or to get notified about major new features, send an
   email to <afl-users+subscribe@googlegroups.com>, but note that this is not
   managed by us.
-
-## Branches
-
-The following branches exist:
-
-* [release](https://github.com/AFLplusplus/AFLplusplus/tree/release): the latest
-  release
-* [stable/trunk](https://github.com/AFLplusplus/AFLplusplus/): stable state of
-  AFL++ - it is synced from dev from time to time when we are satisfied with its
-  stability
-* [dev](https://github.com/AFLplusplus/AFLplusplus/tree/dev): development state
-  of AFL++ - bleeding edge and you might catch a checkout which does not compile
-  or has a bug. **We only accept PRs (pull requests) for the 'dev' branch!**
-* (any other): experimental branches to work on specific features or testing new
-  functionality or changes.
-
-## Help wanted
-
-We have several [ideas](docs/ideas.md) we would like to see in AFL++ to make it
-even better. However, we already work on so many things that we do not have the
-time for all the big ideas.
-
-This can be your way to support and contribute to AFL++ - extend it to do
-something cool.
-
-For everyone who wants to contribute (and send pull requests), please read our
-[contributing guidelines](CONTRIBUTING.md) before you submit.
-
-## Special thanks
-
-Many of the improvements to the original AFL and AFL++ wouldn't be possible
-without feedback, bug reports, or patches from our contributors.
-
-Thank you! (For people sending pull requests - please add yourself to this list
-:-)
 
 <details>
 
@@ -228,31 +213,6 @@ Thank you! (For people sending pull requests - please add yourself to this list
     Thomas Rooijakkers                    David Carlier
     Ruben ten Hove                        Joey Jiao
     fuzzah                                @intrigus-lgtm
-  ```
-
-</details>
-
-## Cite
-
-If you use AFL++ in scientific work, consider citing
-[our paper](https://www.usenix.org/conference/woot20/presentation/fioraldi)
-presented at WOOT'20:
-
-    Andrea Fioraldi, Dominik Maier, Heiko Eißfeldt, and Marc Heuse. “AFL++: Combining incremental steps of fuzzing research”. In 14th USENIX Workshop on Offensive Technologies (WOOT 20). USENIX Association, Aug. 2020.
-
-<details>
-
-<summary>BibTeX</summary>
-
-  ```bibtex
-  @inproceedings {AFLplusplus-Woot20,
-  author = {Andrea Fioraldi and Dominik Maier and Heiko Ei{\ss}feldt and Marc Heuse},
-  title = {{AFL++}: Combining Incremental Steps of Fuzzing Research},
-  booktitle = {14th {USENIX} Workshop on Offensive Technologies ({WOOT} 20)},
-  year = {2020},
-  publisher = {{USENIX} Association},
-  month = aug,
-  }
   ```
 
 </details>
